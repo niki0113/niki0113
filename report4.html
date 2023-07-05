@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Web Audio Recorder</title>
+  </head>
+  <body>
+    <h1>Web Audio Recorder</h1>
+    <button id="recordButton">Record</button>
+    <p id="resultText"></p>
+    <script>
+      const apiKey = "L8Fm2WwkFzD2yK2mN-AJVjJ_tTfmmotcUS9_TUF9IVw"; // ここにあなたのAPIキーを入力してください
+      const recordButton = document.querySelector("#recordButton");
+      const resultText = document.querySelector("#resultText");
+      let isRecording = false;
+      let mediaRecorder;
+      let audioChunks = [];
+
+      recordButton.addEventListener("click", () => {
+        if (!isRecording) {
+          isRecording = true;
+          recordButton.textContent = "Stop Recording";
+          navigator.mediaDevices.getUserMedia({ audio: true })
+          .then(stream => {
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+
+            mediaRecorder.addEventListener("dataavailable", event => {
+              audioChunks.push(event.data);
+            });
+
+            mediaRecorder.addEventListener("stop", () => {
+              const audioBlob = new Blob(audioChunks, { 'type' : 'audio/wav; codecs=0' });
+              const formData = new FormData();
+              formData.append("apikey", apiKey);
+              formData.append("wav", audioBlob, "audio.wav");
+              fetch("https://hogehoge_server/v2/analyzeWav", {
+                method: "POST",
+                body: formData
+              })
+              .then(response => response.json())
+              .then(data => {
+                console.log(data);
+                // dataには感情解析の結果が含まれます
+                let maxEmotion = Object.keys(data).reduce((a, b) => data[a] > data[b] ? a : b);
+                switch (maxEmotion) {
+                  case 'calm':
+                    resultText.textContent = 'ほーん、そうか';
+                    break;
+                  case 'anger':
+                    resultText.textContent = 'どないしたんや？';
+                    break;
+                  case 'joy':
+                    resultText.textContent = 'めっちゃええやん！';
+                    break;
+                  case 'sorrow':
+                    resultText.textContent = '大丈夫なんやろな？';
+                    break;
+                  case 'energy':
+                    resultText.textContent = '君、おっちゃんには眩しいわ';
+                    break;
+                  default:
+                    resultText.textContent = '';
+                }
+              });
+            });
+
+            mediaRecorder.start();
+          });
+        } else {
+          isRecording = false;
+          recordButton.textContent = "Record";
+          mediaRecorder.stop();
+        }
+      });
+    </script>
+  </body>
+</html>
