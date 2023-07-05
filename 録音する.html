@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <title>Save audio data</title>
+</head>
+
+<body>
+  <h1>感情をこめて、4.9秒以内で、今日起きたことを話してください</h1>
+  <button id="start">Start Recording</button>
+  <button id="stop" disabled>Stop Recording</button>
+  <a id="download" style="display: none;">Download</a>
+  <script>
+    // for html
+    const startButton = document.getElementById('start');
+    const stopButton = document.getElementById('stop');
+    const downloadLink = document.getElementById('download');
+
+    // for audio
+    let audio_sample_rate = 11025;
+    let scriptProcessor = null;
+    let audioContext = null;
+
+    // audio data
+    let audioData = [];
+    let bufferSize = 1024;
+
+    let saveAudio = function () {
+      downloadLink.href = exportWAV(audioData);
+      downloadLink.download = 'test.wav';
+      downloadLink.style.display = 'block';
+
+      audioContext.close().then(function () {
+        stopButton.setAttribute('disabled', 'disabled');
+      });
+    };
+
+    // export WAV from audio float data
+    let exportWAV = function (audioData) {
+      let encodeWAV = function (samples, sampleRate) {
+        let buffer = new ArrayBuffer(44 + samples.length * 2);
+        let view = new DataView(buffer);
+
+        let writeString = function (view, offset, string) {
+          for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+          }
+        };
+
+        let floatTo16BitPCM = function (output, offset, input) {
+          for (let i = 0; i < input.length; i++, offset += 2) {
+            let s = Math.max(-1, Math.min(1, input[i]));
+            output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+          }
+        };
+
+        writeString(view, 0, 'RIFF');  // RIFFヘッダ
+        view.setUint32(4, 32 + samples.length * 2, true); // これ以降のファイルサイズ
+        writeString(view, 8, 'WAVE'); // WAVEヘッダ
+        writeString(view, 12, 'fmt '); // fmtチャンク
+        view.setUint32(16, 16, true); // fmtチャンクのバイト数
+        view.setUint16(20, 1, true); // フォーマットID
+        view.setUint16(22, 1, true); // チャンネル数
+        view.setUint32(24, sampleRate, true); // サンプリングレート
+        view.setUint32(28, sampleRate * 2, true); // データ速度
+        view.setUint16(32, 2, true); // ブロックサイズ
+        view.setUint16(34, 16, true); // サンプルあたりのビット数
+        writeString(view, 36, 'data'); // dataチャンク
+        view.setUint32(40, samples.length * 2, true); // 波形データのバイト数
+        floatTo16BitPCM(view, 44, samples); // 波形データ
+
+        return view;
+      };
+
+      let mergeBuffers = function (audioData) {
+        let sampleLength = 0;
+        for (let i = 0; i < audioData.length; i++) {
+          sampleLength += audioData[i].length;
+        }
+        let samples = new Float32Array(sampleLength);
+        let sampleIdx = 0;
+        for (let i = 0; i < audioData.length; i++) {
+          for (let j = 0; j < audioData[i].length; j++) {
+            samples[sampleIdx] = audioData[i][j];
+            sampleIdx++;
+          }
+        }
+        return samples;
+      };
+
+      let view = encodeWAV(mergeBuffers(audioData), audio_sample_rate);
+      let audioBlob = new Blob([view], { type: 'audio/wav' });
+
+      let myURL = window.URL || window.webkitURL;
+      let url = myURL.createObjectURL(audioBlob);
+      return url;
+    };
+
+    // start button
+    startButton.addEventListener('click', function () {
+      navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        .then(handleSuccess)
+        .catch(function (err) {
+          console.error('Error accessing microphone: ' + err);
+        });
+    });
+
+    // handle success
+    let handleSuccess = function (stream) {
+      startButton.setAttribute('disabled', 'disabled');
+      stopButton.removeAttribute('disabled');
+
+      audioContext = new AudioContext({ sampleRate: audio_sample_rate });
+      scriptProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+      let mediaStreamSource = audioContext.createMediaStreamSource(stream);
+      mediaStreamSource.connect(scriptProcessor);
+      scriptProcessor.onaudioprocess = onAudioProcess;
+      scriptProcessor.connect(audioContext.destination);
+
+      console.log('Recording started');
+    };
+
+    // stop button
+    stopButton.addEventListener('click', function () {
+      stopButton.setAttribute('disabled', 'disabled');
+      saveAudio();
+      console.log('Recording stopped');
+    });
+
+    // save audio data
+    let onAudioProcess = function (e) {
+      let input = e.inputBuffer.getChannelData(0);
+      let bufferData = new Float32Array(bufferSize * (audio_sample_rate / 48000));
+      for (let i = 0; i < bufferSize; i++) {
+        bufferData[i] = input[i];
+      }
+
+      audioData.push(bufferData);
+    };
+
+  </script>
+</body>
+
+</html>
