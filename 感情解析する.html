@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Empath API Example</title>
+  </head>
+  <body>
+    <h1>Empath API Example</h1>
+    <input type="file" id="audioFile" accept="audio/wav">
+    <button id="analyzeButton">Analyze</button>
+    <p id="resultText"></p>
+    <script>
+      const apiKey = "L8Fm2WwkFzD2yK2mN-AJVjJ_tTfmmotcUS9_TUF9IVw"; 
+      const audioFile = document.querySelector("#audioFile");
+      const analyzeButton = document.querySelector("#analyzeButton");
+      const resultText = document.querySelector("#resultText");
+
+      analyzeButton.addEventListener("click", () => {
+        if (audioFile.files.length === 0) {
+          alert("Please select an audio file.");
+          return;
+        }
+
+        const file = audioFile.files[0];
+        const formData = new FormData();
+        formData.append("apikey", apiKey);
+        formData.append("wav", file);
+        fetch("https://api.webempath.net/v2/analyzeWav", {
+          method: "POST",
+          body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+          console.log(data);
+          // dataには感情解析の結果が含まれます
+          let maxEmotion = Object.keys(data).reduce((a, b) => data[a] > data[b] ? a : b);
+          switch (maxEmotion) {
+            case 'calm':
+              resultText.textContent = 'ほーん、そうか';
+              break;
+            case 'anger':
+              resultText.textContent = 'どないしたんや？';
+              break;
+            case 'joy':
+              resultText.textContent = 'めっちゃええやん！';
+              break;
+            case 'sorrow':
+              resultText.textContent = '大丈夫なんやろな？';
+              break;
+            case 'energy':
+              resultText.textContent = '君、おっちゃんには眩しいわ';
+              break;
+            default:
+              resultText.textContent = '';
+          }
+
+          // SpeechSynthesisUtteranceオブジェクトを作成してテキストを読み上げる
+          const utterance = new SpeechSynthesisUtterance(resultText.textContent);
+          utterance.lang = 'ja-JP';
+          speechSynthesis.speak(utterance);
+        });
+      });
+    </script>
+  </body>
+</html>
