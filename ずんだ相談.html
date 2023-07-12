@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>ずんだ相談</title>
+    <link rel="stylesheet" type="text/css" href="ずんだ相談.css">
+    <script src="https://cdn.rawgit.com/mattdiamond/Recorderjs/08e7abd9/dist/recorder.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <div class="left-space">
+        <img src="ずんだもん2.png" alt="右向きずんだもん">
+      </div>
+      <div class="main-content">
+        <h1>ずんだもんに聞いてもらおう!</h1>
+        <h2>5秒以内で嬉しかったことや悲しかったことを話してみよう！</h2>
+        <button id="recordButton">Record</button>
+        <button id="stopButton" disabled>Stop</button>
+        <button id="resetButton">Reset</button>
+        <p id="resultText"></p>
+      </div>
+      <div class="right-space">
+        <img src="ずんだもん.png" alt="左向きずんだもん">
+      </div>
+    </div>
+    <script>
+      const apiKey = "L8Fm2WwkFzD2yK2mN-AJVjJ_tTfmmotcUS9_TUF9IVw";
+      const recordButton = document.querySelector("#recordButton");
+      const stopButton = document.querySelector("#stopButton");
+      const resultText = document.querySelector("#resultText");
+      const resetButton = document.querySelector("#resetButton");
+      let audioData; // 音声データを保持する変数
+      let mediaRecorder;
+      let audioChunks = [];
+
+      // 音声入力を開始する関数
+      function startRecording() {
+        navigator.mediaDevices.getUserMedia({ audio: true })
+          .then(stream => {
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.start();
+            mediaRecorder.addEventListener("dataavailable", event => {
+              audioChunks.push(event.data);
+            });
+            recordButton.disabled = true;
+            stopButton.disabled = false;
+          })
+          .catch(err => {
+            console.log('Error starting recording:', err);
+          });
+      }
+
+      // 音声入力を停止する関数
+      function stopRecording() {
+        mediaRecorder.stop();
+        mediaRecorder.addEventListener("stop", () => {
+          const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+          const fileReader = new FileReader();
+          fileReader.readAsArrayBuffer(audioBlob);
+          fileReader.onloadend = () => {
+            const audioBuffer = fileReader.result;
+            const audioContext = new OfflineAudioContext(1, 11025 * 5, 11025);
+            audioContext.decodeAudioData(audioBuffer, buffer => {
+              const source = audioContext.createBufferSource();
+              source.buffer = buffer;
+              source.connect(audioContext.destination);
+              source.start();
+              audioContext.startRendering().then(renderedBuffer => {
+                const wav = toWav(renderedBuffer);
+                audioData = new Blob([wav], { type: 'audio/wav' });
+                // 音声データがaudioData変数に格納されました
+                analyzeAudio();
+              });
+            });
+          };
+        });
+      }
+
+
+      // リセットボタンがクリックされたときの処理
+      function resetRecording() {
+        audioData = null;
+        audioChunks = [];
+        resultText.textContent = '';
+        recordButton.disabled = false;
+        stopButton.disabled = true;
+      }
+      
+      // AudioBufferからWAVファイルを生成する関数
+      function toWav(audioBuffer) {
+        const numOfChan = audioBuffer.numberOfChannels;
+        const length = audioBuffer.length * numOfChan * 2 + 44;
+        const buffer = new ArrayBuffer(length);
+        const view = new DataView(buffer);
+        const channels = [];
+        let i;
+        let sample;
+        let offset = 0;
+        let pos = 0;
+
+        // write WAVE header
+        setUint32(0x46464952);                         // "RIFF"
+        setUint32(length - 8);                         // file length - 8
+        setUint32(0x45564157);                         // "WAVE"
+
+        setUint32(0x20746d66);                         // "fmt " chunk
+        setUint32(16);                                 // length = 16
+        setUint16(1);                                  // PCM (uncompressed)
+        setUint16(numOfChan);
+        setUint32(audioBuffer.sampleRate);
+        setUint32(audioBuffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
+        setUint16(numOfChan * 2);                      // block-align
+        setUint16(16);                                 // 16-bit (hardcoded in this demo)
+
+        setUint32(0x61746164);                         // "data" - chunk
+        setUint32(length - pos - 4);                   // chunk length
+
+        // write interleaved data
+        for (i = 0; i < audioBuffer.numberOfChannels; i++)
+          channels.push(audioBuffer.getChannelData(i));
+
+        while (pos < length) {
+          for (i = 0; i < numOfChan; i++) {             // interleave channels
+            sample = Math.max(-1, Math.min(1, channels[i][offset])); // clamp
+            sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0; // scale to 16-bit signed int
+            view.setInt16(pos, sample, true);          // write 16-bit sample
+            pos += 2;
+          }
+          offset++                                     // next source sample
+        }
+
+        // create Blob
+        return buffer;
+
+        function setUint16(data) {
+          view.setUint16(pos, data, true);
+          pos += 2;
+        }
+
+        function setUint32(data) {
+          view.setUint32(pos, data, true);
+          pos += 4;
+        }
+      }
+
+      // 音声データを分析する関数
+      function analyzeAudio() {
+        if (!audioData) {
+          alert("音声データを読み込んでください。");
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append("apikey", apiKey);
+        formData.append("wav", audioData);
+        fetch("https://api.webempath.net/v2/analyzeWav", {
+          method: "POST",
+          body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+          console.log(data);
+          // dataには感情解析の結果が含まれます
+          let maxEmotion = Object.keys(data).reduce((a, b) => data[a] > data[b] ? a : b);
+          switch (maxEmotion) {
+            case 'calm':
+              resultText.textContent = 'ふーん、そうなのかー';
+              break;
+            case 'anger':
+              resultText.textContent = '少し落ち着いて、深呼吸するのだ';
+              break;
+            case 'joy':
+              resultText.textContent = 'とても楽しそうなのだ！';
+              break;
+            case 'sorrow':
+              resultText.textContent = '大丈夫なのだ...？';
+              break;
+            case 'energy':
+              resultText.textContent = '元気そうで僕もうれしいのだ！';
+              break;
+            default:
+              resultText.textContent = '';
+          }
+
+          // 「ずんだもん」の音声を再生する処理
+          if (resultText.textContent) {
+            const text = encodeURIComponent(resultText.textContent);
+            const url = `https://deprecatedapis.tts.quest/v2/voicevox/audio/?key=F-4-U-64I36_p0a&speaker=3&pitch=0&intonationScale=1&speed=1&text=${text}`;
+            const audio = new Audio(url);
+            audio.play();
+          }
+        });
+      }
+
+      recordButton.addEventListener("click", startRecording);
+      stopButton.addEventListener("click", stopRecording);
+      resetButton.addEventListener("click", resetRecording)
+    </script>
+  </body>
+</html>
